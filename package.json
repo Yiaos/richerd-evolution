@@ -1,0 +1,20 @@
+{
+  "name": "richerd-evolution",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test ./tests/*.test.ts",
+    "build": "tsc -p tsconfig.json",
+    "eval:routing": "node --import tsx scripts/run-routing-eval.ts"
+  },
+  "bin": {
+    "richerd-evolution": "scripts/run-routing-eval.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.18.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.15.15"
+  }
+}

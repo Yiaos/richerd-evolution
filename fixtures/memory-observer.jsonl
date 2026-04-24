@@ -1,0 +1,1 @@
+{"id":"observer-001","intent":"我现在已经在 richerd-memory 的调试里触发了 feedback 实体变更，请确认 observer 能记录这类失败","expectedSkill":"memory-ops","shouldTrigger":false,"rationale":"Observer candidate regression placeholder for future harness expansion."}

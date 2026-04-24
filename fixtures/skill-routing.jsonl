@@ -1,0 +1,3 @@
+{"id":"routing-001","intent":"collect article from page and save it to knowledge base","expectedSkill":"collect-article","shouldTrigger":true,"rationale":"Collect-article should trigger on explicit collect-article wording in english baseline."}
+{"id":"routing-002","intent":"我不想再重复这个任务了，给我做一次复核","expectedSkill":"code-review","shouldTrigger":false,"rationale":"Negative: close intent should not match skillify/resolver triggers without explicit context."}
+{"id":"routing-003","intent":"请使用 code review 检查这次实现，有错误要修掉","expectedSkill":"code-review","shouldTrigger":true,"rationale":"Explicit ask for code review should trigger installed skill when present."}
