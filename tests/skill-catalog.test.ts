@@ -61,3 +61,26 @@ test('loadSkillCatalog supports fallback to header-like title when name missing'
     await rm(tmp, { recursive: true, force: true });
   }
 });
+
+
+test('loadSkillCatalog accepts multiple roots, dedupes by first root, and skips missing defaults', async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'richerd-evo-'));
+  try {
+    const firstRoot = path.join(tmp, 'skills-a');
+    const secondRoot = path.join(tmp, 'skills-b');
+    await mkdir(path.join(firstRoot, 'alpha'), { recursive: true });
+    await mkdir(path.join(secondRoot, 'alpha'), { recursive: true });
+    await mkdir(path.join(secondRoot, 'beta'), { recursive: true });
+
+    await fs.writeFile(path.join(firstRoot, 'alpha', 'SKILL.md'), fmFrom('alpha', 'first root wins'));
+    await fs.writeFile(path.join(secondRoot, 'alpha', 'SKILL.md'), fmFrom('alpha', 'duplicate loses'));
+    await fs.writeFile(path.join(secondRoot, 'beta', 'SKILL.md'), fmFrom('beta', 'second root included'));
+
+    const catalog = await loadSkillCatalog([firstRoot, path.join(tmp, 'missing'), secondRoot].join(path.delimiter));
+    assert.equal(catalog.length, 2);
+    assert.equal(catalog.find((s: Skill) => s.name === 'alpha')?.description, 'first root wins');
+    assert.equal(catalog.find((s: Skill) => s.name === 'beta')?.description, 'second root included');
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
