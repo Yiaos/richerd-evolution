@@ -32,7 +32,7 @@ function parseArgs(argv: string[]): EvalOptions {
   return {
     fixturePath:
       opts['--fixture'] || path.join(baseDir, '../fixtures/skill-routing.jsonl'),
-    catalogRoot: opts['--catalog-root'] || process.env.SKILL_ROOT || '~/.openclaw/workspace/skills',
+    catalogRoot: opts['--catalog-root'] || process.env.SKILL_ROOT || '',
     reportDir: opts['--report-dir'] || path.join(baseDir, '../reports'),
   };
 }
