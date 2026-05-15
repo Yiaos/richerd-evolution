@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { loadSkillCatalog } from '../src/skill-catalog.js';
 import { parseFixtureLine, runRoutingEval } from '../src/routing-eval.js';
 import type { SkillInfo } from '../src/skill-catalog.js';
+import type { RoutingFixture } from '../src/routing-eval.js';
 
 interface EvalOptions {
   fixturePath: string;
-  catalogRoot: string;
+  catalogRoot?: string;
   reportDir: string;
 }
 
@@ -32,7 +33,7 @@ function parseArgs(argv: string[]): EvalOptions {
   return {
     fixturePath:
       opts['--fixture'] || path.join(baseDir, '../fixtures/skill-routing.jsonl'),
-    catalogRoot: opts['--catalog-root'] || process.env.SKILL_ROOT || '~/.openclaw/workspace/skills',
+    catalogRoot: opts['--catalog-root'] || process.env.SKILL_ROOT || undefined,
     reportDir: opts['--report-dir'] || path.join(baseDir, '../reports'),
   };
 }
@@ -52,15 +53,17 @@ async function readFixtureLines(filePath: string) {
     });
 }
 
-function findMissingExpectedSkills(fixtures: { expectedSkill: string; shouldTrigger: boolean }[], catalog: SkillInfo[]) {
+function findMissingExpectedSkills(fixtures: RoutingFixture[], catalog: SkillInfo[]) {
   const catalogSet = new Set(catalog.map((s) => s.name));
-  return fixtures.filter((entry) => entry.shouldTrigger && !catalogSet.has(entry.expectedSkill));
+  return fixtures.filter((entry) => entry.shouldTrigger && entry.expectedSkill !== null && !catalogSet.has(entry.expectedSkill));
 }
 
 async function main() {
   const options = parseArgs(process.argv);
   const fixtures = await readFixtureLines(options.fixturePath);
-  const catalog = await loadSkillCatalog(options.catalogRoot);
+  const catalog = options.catalogRoot
+    ? await loadSkillCatalog(options.catalogRoot)
+    : await loadSkillCatalog();
 
   const missing = findMissingExpectedSkills(fixtures, catalog);
   if (missing.length > 0) {
@@ -90,8 +93,11 @@ async function main() {
     fs.writeFile(latest, reportText),
   ]);
 
-  const summary = `Routing eval: ${result.passed}/${result.total} passed (${result.failed} failed)`;
-  console.log(summary);
+  const cm = result.confusionMatrix;
+  const passRatePct = (cm.routingPassRate * 100).toFixed(2);
+  console.log(`Routing eval: ${result.passed}/${result.total} passed (${result.failed} failed)`);
+  console.log(`TP=${cm.truePositive} TN=${cm.trueNegative} FN=${cm.falseNegative} FP=${cm.falsePositive} wrongSkill=${cm.wrongSkill} passRate=${passRatePct}%`);
+
   if (result.failed > 0) {
     for (const item of result.results) {
       if (!item.passed) {

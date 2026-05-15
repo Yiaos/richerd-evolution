@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import type { Dirent } from "node:fs";
 import path from "node:path";
 
 export interface SkillInfo {
@@ -9,24 +10,48 @@ export interface SkillInfo {
 
 export interface SkillCatalogOptions {
   root?: string;
+  roots?: string[];
 }
 
-const DEFAULT_SKILL_ROOT = "~/.openclaw/workspace/skills";
-
-function normalizeRoot(root?: string): string {
-  if (!root) {
-    return expandHome(DEFAULT_SKILL_ROOT);
-  }
-  return expandHome(root);
-}
+export const DEFAULT_SKILL_ROOTS = [
+  "~/worksp/richerd-skills/skills/richerd",
+  "~/worksp/richerd-skills/skills/third-party",
+  "~/worksp/richerd-skills/skills/universal",
+  "~/.openclaw/workspace/skills",
+  "~/.agents/skills",
+  "~/.openclaw/npm/node_modules/openclaw/skills/",
+  "~/.openclaw/plugin-skills/",
+] as const;
 
 export function expandHome(rawPath: string): string {
   if (!rawPath.startsWith("~")) return rawPath;
   return path.join(process.env.HOME ?? "", rawPath.slice(2));
 }
 
+export function normalizeRoots(input?: string | SkillCatalogOptions): string[] {
+  const rawRoots =
+    typeof input === "string"
+      ? [input]
+      : input?.roots && input.roots.length > 0
+        ? input.roots
+        : input?.root
+          ? [input.root]
+          : [...DEFAULT_SKILL_ROOTS];
+
+  const seen = new Set<string>();
+  const roots: string[] = [];
+
+  for (const rawRoot of rawRoots) {
+    const normalized = expandHome(rawRoot).trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    roots.push(normalized);
+  }
+
+  return roots;
+}
+
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
-const FIELD_RE = /^(\w+):\s*(.*)$/gm;
 
 function parseFrontmatterOrHeading(content: string): { name?: string; description?: string } {
   const fmMatch = content.match(FRONTMATTER_RE);
@@ -66,31 +91,43 @@ function parseFrontmatterOrHeading(content: string): { name?: string; descriptio
   return { name, description: description || "" };
 }
 
-export async function loadSkillCatalog(root?: string): Promise<SkillInfo[]> {
-  const rootPath = normalizeRoot(root);
-  const dir = await fs.readdir(rootPath, { withFileTypes: true });
+export async function loadSkillCatalog(input?: string | SkillCatalogOptions): Promise<SkillInfo[]> {
+  const roots = normalizeRoots(input);
+  const skillByName = new Map<string, SkillInfo>();
 
-  const skills: SkillInfo[] = [];
-
-  for (const entry of dir) {
-    if (!entry.isDirectory()) continue;
-    const skillDir = path.join(rootPath, entry.name);
-    const skillPath = path.join(skillDir, "SKILL.md");
-
+  for (const rootPath of roots) {
+    let dir: Dirent[];
     try {
-      const content = await fs.readFile(skillPath, "utf8");
-      const parsed = parseFrontmatterOrHeading(content);
-      if (!parsed.name) continue;
-      skills.push({
-        name: parsed.name,
-        description: parsed.description || "",
-        path: skillDir,
-      });
-    } catch {
-      // Skip invalid/missing skill files.
+      dir = await fs.readdir(rootPath, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+
+    const sortedDir = [...dir].sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of sortedDir) {
+      if (!entry.isDirectory()) continue;
+      const skillDir = path.join(rootPath, entry.name);
+      const skillPath = path.join(skillDir, "SKILL.md");
+
+      try {
+        const content = await fs.readFile(skillPath, "utf8");
+        const parsed = parseFrontmatterOrHeading(content);
+        if (!parsed.name || skillByName.has(parsed.name)) continue;
+
+        skillByName.set(parsed.name, {
+          name: parsed.name,
+          description: parsed.description || "",
+          path: skillDir,
+        });
+      } catch {
+        // Skip invalid/missing skill files.
+      }
     }
   }
 
-  skills.sort((a, b) => a.name.localeCompare(b.name));
-  return skills;
+  return [...skillByName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }

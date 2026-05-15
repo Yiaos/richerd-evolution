@@ -17,7 +17,7 @@ type RoutingResult = {
   id: string;
   passed: boolean;
   predictedSkill: string | null;
-  expectedSkill: string;
+  expectedSkill: string | null;
   expectedShouldTrigger: boolean;
 };
 
@@ -35,6 +35,91 @@ test('parseFixtureLine validates required fields', () => {
   assert.equal(good.shouldTrigger, true);
 
   assert.throws(() => parseFixtureLine(''), /Empty fixture line/);
+});
+
+test('parseFixtureLine accepts expectedSkill:null when shouldTrigger=false', () => {
+  const fixture = parseFixtureLine(
+    JSON.stringify({
+      id: 'case-null-ok',
+      intent: 'just chatting',
+      expectedSkill: null,
+      shouldTrigger: false,
+      rationale: 'no skill should be triggered',
+    }),
+  );
+
+  assert.equal(fixture.expectedSkill, null);
+  assert.equal(fixture.shouldTrigger, false);
+});
+
+test('parseFixtureLine rejects expectedSkill:null when shouldTrigger=true', () => {
+  assert.throws(
+    () =>
+      parseFixtureLine(
+        JSON.stringify({
+          id: 'case-null-bad',
+          intent: 'please do code review',
+          expectedSkill: null,
+          shouldTrigger: true,
+        }),
+      ),
+    /expectedSkill cannot be null when shouldTrigger=true/,
+  );
+});
+
+test('parseFixtureLine rejects non-string/non-null expectedSkill', () => {
+  assert.throws(
+    () =>
+      parseFixtureLine(
+        JSON.stringify({
+          id: 'case-bad-type',
+          intent: 'anything',
+          expectedSkill: 123,
+          shouldTrigger: false,
+        }),
+      ),
+    /expectedSkill must be string\|null/,
+  );
+});
+
+test('parseFixtureLine rejects missing expectedSkill field', () => {
+  assert.throws(
+    () =>
+      parseFixtureLine(
+        JSON.stringify({
+          id: 'case-missing',
+          intent: 'anything',
+          shouldTrigger: false,
+        }),
+      ),
+    /expectedSkill is required/,
+  );
+});
+
+test('parseFixtureLine preserves metadata fields', () => {
+  const fixture = parseFixtureLine(
+    JSON.stringify({
+      id: 'case-meta',
+      intent: 'collect one article',
+      expectedSkill: 'collect-article',
+      shouldTrigger: true,
+      labelSource: 'human',
+      labelerModel: null,
+      labelerPromptVersion: 'manual-v1',
+      reviewedBy: 'richer',
+      reviewStatus: 'approved',
+      sourceSession: 'session-001.jsonl',
+      sourceTurnId: 'turn-42',
+    }),
+  );
+
+  assert.equal(fixture.labelSource, 'human');
+  assert.equal(fixture.labelerModel, null);
+  assert.equal(fixture.labelerPromptVersion, 'manual-v1');
+  assert.equal(fixture.reviewedBy, 'richer');
+  assert.equal(fixture.reviewStatus, 'approved');
+  assert.equal(fixture.sourceSession, 'session-001.jsonl');
+  assert.equal(fixture.sourceTurnId, 'turn-42');
 });
 
 test('routing fixture validates and supports deterministic baseline', async () => {
@@ -63,9 +148,9 @@ test('routing fixture validates and supports deterministic baseline', async () =
       JSON.stringify({
         id: 'case-trigger',
         intent: '请先帮我做一次回顾',
-        expectedSkill: 'code-review',
+        expectedSkill: null,
         shouldTrigger: false,
-        rationale: 'no code-review skill installed',
+        rationale: 'no trigger expected',
       }),
     ];
 
@@ -78,7 +163,7 @@ test('routing fixture validates and supports deterministic baseline', async () =
       .filter(Boolean)
       .map((line) => parseFixtureLine(line));
 
-    const noMissing = lines.filter((entry: RoutingFixture) => entry.shouldTrigger && catalogNames.has(entry.expectedSkill));
+    const noMissing = lines.filter((entry: RoutingFixture) => entry.shouldTrigger && entry.expectedSkill !== null && catalogNames.has(entry.expectedSkill));
     assert.equal(noMissing.length, 1, 'only collect-article should be required');
     assert.equal(noMissing[0].expectedSkill, 'collect-article');
 
@@ -95,4 +180,64 @@ test('routing fixture validates and supports deterministic baseline', async () =
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+});
+
+test('runRoutingEval returns strict confusion matrix and pass semantics', () => {
+  const fixtures: RoutingFixture[] = [
+    {
+      id: 'tp',
+      intent: 'trigger expected A',
+      expectedSkill: 'skill-a',
+      shouldTrigger: true,
+    },
+    {
+      id: 'tn',
+      intent: 'should not trigger',
+      expectedSkill: null,
+      shouldTrigger: false,
+    },
+    {
+      id: 'fn',
+      intent: 'miss expected',
+      expectedSkill: 'skill-b',
+      shouldTrigger: true,
+    },
+    {
+      id: 'fp',
+      intent: 'unexpected trigger',
+      expectedSkill: null,
+      shouldTrigger: false,
+    },
+    {
+      id: 'ws',
+      intent: 'wrong skill',
+      expectedSkill: 'skill-c',
+      shouldTrigger: true,
+    },
+  ];
+
+  const predictions = new Map<string, string | null>([
+    ['trigger expected A', 'skill-a'],
+    ['should not trigger', null],
+    ['miss expected', null],
+    ['unexpected trigger', 'skill-z'],
+    ['wrong skill', 'skill-x'],
+  ]);
+
+  const resolver = (intent: string): string | null => predictions.get(intent) ?? null;
+  const result = runRoutingEval(fixtures, [{ name: 'skill-a' }], resolver);
+
+  assert.equal(result.confusionMatrix.truePositive, 1);
+  assert.equal(result.confusionMatrix.trueNegative, 1);
+  assert.equal(result.confusionMatrix.falseNegative, 1);
+  assert.equal(result.confusionMatrix.falsePositive, 1);
+  assert.equal(result.confusionMatrix.wrongSkill, 1);
+  assert.equal(result.confusionMatrix.routingPassRate, 2 / 5);
+
+  const resultById = new Map(result.results.map((r) => [r.id, r]));
+  assert.equal(resultById.get('tp')?.passed, true);
+  assert.equal(resultById.get('tn')?.passed, true);
+  assert.equal(resultById.get('fn')?.passed, false);
+  assert.equal(resultById.get('fp')?.passed, false);
+  assert.equal(resultById.get('ws')?.passed, false);
 });
