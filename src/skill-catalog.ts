@@ -11,13 +11,26 @@ export interface SkillCatalogOptions {
   root?: string;
 }
 
-const DEFAULT_SKILL_ROOT = "~/.openclaw/workspace/skills";
+export const DEFAULT_SKILL_ROOTS = [
+  "~/worksp/richerd-skills/skills/richerd",
+  "~/worksp/richerd-skills/skills/third-party",
+  "~/worksp/richerd-skills/skills/universal",
+  "~/.openclaw/workspace/skills",
+  "~/.agents/skills",
+  "~/.openclaw/npm/node_modules/openclaw/skills/",
+  "~/.openclaw/plugin-skills/",
+] as const;
 
-function normalizeRoot(root?: string): string {
-  if (!root) {
-    return expandHome(DEFAULT_SKILL_ROOT);
-  }
-  return expandHome(root);
+function splitRoots(rawRoot: string): string[] {
+  return rawRoot
+    .split(path.delimiter)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeRoots(root?: string): string[] {
+  const roots = root ? splitRoots(root) : [...DEFAULT_SKILL_ROOTS];
+  return roots.map((item) => expandHome(item));
 }
 
 export function expandHome(rawPath: string): string {
@@ -26,7 +39,6 @@ export function expandHome(rawPath: string): string {
 }
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
-const FIELD_RE = /^(\w+):\s*(.*)$/gm;
 
 function parseFrontmatterOrHeading(content: string): { name?: string; description?: string } {
   const fmMatch = content.match(FRONTMATTER_RE);
@@ -67,30 +79,41 @@ function parseFrontmatterOrHeading(content: string): { name?: string; descriptio
 }
 
 export async function loadSkillCatalog(root?: string): Promise<SkillInfo[]> {
-  const rootPath = normalizeRoot(root);
-  const dir = await fs.readdir(rootPath, { withFileTypes: true });
+  const rootPaths = normalizeRoots(root);
+  const skillsByName = new Map<string, SkillInfo>();
 
-  const skills: SkillInfo[] = [];
-
-  for (const entry of dir) {
-    if (!entry.isDirectory()) continue;
-    const skillDir = path.join(rootPath, entry.name);
-    const skillPath = path.join(skillDir, "SKILL.md");
-
+  for (const rootPath of rootPaths) {
+    let dir;
     try {
-      const content = await fs.readFile(skillPath, "utf8");
-      const parsed = parseFrontmatterOrHeading(content);
-      if (!parsed.name) continue;
-      skills.push({
-        name: parsed.name,
-        description: parsed.description || "",
-        path: skillDir,
-      });
-    } catch {
-      // Skip invalid/missing skill files.
+      dir = await fs.readdir(rootPath, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+
+    for (const entry of dir) {
+      if (!entry.isDirectory()) continue;
+      const skillDir = path.join(rootPath, entry.name);
+      const skillPath = path.join(skillDir, "SKILL.md");
+
+      try {
+        const content = await fs.readFile(skillPath, "utf8");
+        const parsed = parseFrontmatterOrHeading(content);
+        if (!parsed.name || skillsByName.has(parsed.name)) continue;
+        skillsByName.set(parsed.name, {
+          name: parsed.name,
+          description: parsed.description || "",
+          path: skillDir,
+        });
+      } catch {
+        // Skip invalid/missing skill files.
+      }
     }
   }
 
+  const skills = [...skillsByName.values()];
   skills.sort((a, b) => a.name.localeCompare(b.name));
   return skills;
 }

@@ -1,8 +1,16 @@
 {
-  "total": 3,
-  "passed": 3,
+  "total": 4,
+  "passed": 4,
   "failed": 0,
-  "timestamp": "2026-04-24T18:51:26.011Z",
+  "timestamp": "2026-05-15T11:53:40.944Z",
+  "confusionMatrix": {
+    "truePositive": 2,
+    "trueNegative": 2,
+    "falseNegative": 0,
+    "falsePositive": 0,
+    "wrongSkill": 0,
+    "routingPassRate": 1
+  },
   "results": [
     {
       "id": "routing-001",
@@ -15,7 +23,7 @@
     {
       "id": "routing-002",
       "intent": "我不想再重复这个任务了，给我做一次复核",
-      "expectedSkill": "code-review",
+      "expectedSkill": null,
       "expectedShouldTrigger": false,
       "predictedSkill": null,
       "passed": true
@@ -27,11 +35,19 @@
       "expectedShouldTrigger": true,
       "predictedSkill": "code-review",
       "passed": true
+    },
+    {
+      "id": "routing-004",
+      "intent": "今天天气怎么样",
+      "expectedSkill": null,
+      "expectedShouldTrigger": false,
+      "predictedSkill": null,
+      "passed": true
     }
   ],
   "environment": {
     "node": "v24.2.0",
     "platform": "darwin",
-    "catalogSize": 23
+    "catalogSize": 100
   }
 }

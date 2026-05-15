@@ -32,7 +32,7 @@ function parseArgs(argv: string[]): EvalOptions {
   return {
     fixturePath:
       opts['--fixture'] || path.join(baseDir, '../fixtures/skill-routing.jsonl'),
-    catalogRoot: opts['--catalog-root'] || process.env.SKILL_ROOT || '~/.openclaw/workspace/skills',
+    catalogRoot: opts['--catalog-root'] || process.env.SKILL_ROOT || '',
     reportDir: opts['--report-dir'] || path.join(baseDir, '../reports'),
   };
 }
@@ -52,15 +52,17 @@ async function readFixtureLines(filePath: string) {
     });
 }
 
-function findMissingExpectedSkills(fixtures: { expectedSkill: string; shouldTrigger: boolean }[], catalog: SkillInfo[]) {
+function findMissingExpectedSkills(fixtures: { expectedSkill: string | null; shouldTrigger: boolean }[], catalog: SkillInfo[]) {
   const catalogSet = new Set(catalog.map((s) => s.name));
-  return fixtures.filter((entry) => entry.shouldTrigger && !catalogSet.has(entry.expectedSkill));
+  return fixtures.filter((entry) => entry.shouldTrigger && entry.expectedSkill !== null && !catalogSet.has(entry.expectedSkill));
 }
 
 async function main() {
   const options = parseArgs(process.argv);
   const fixtures = await readFixtureLines(options.fixturePath);
-  const catalog = await loadSkillCatalog(options.catalogRoot);
+  const catalog = options.catalogRoot
+    ? await loadSkillCatalog(options.catalogRoot)
+    : await loadSkillCatalog();
 
   const missing = findMissingExpectedSkills(fixtures, catalog);
   if (missing.length > 0) {
@@ -92,6 +94,9 @@ async function main() {
 
   const summary = `Routing eval: ${result.passed}/${result.total} passed (${result.failed} failed)`;
   console.log(summary);
+  console.log(
+    `TP=${result.confusionMatrix.truePositive} TN=${result.confusionMatrix.trueNegative} FN=${result.confusionMatrix.falseNegative} FP=${result.confusionMatrix.falsePositive} wrongSkill=${result.confusionMatrix.wrongSkill} passRate=${(result.confusionMatrix.routingPassRate * 100).toFixed(1)}%`,
+  );
   if (result.failed > 0) {
     for (const item of result.results) {
       if (!item.passed) {

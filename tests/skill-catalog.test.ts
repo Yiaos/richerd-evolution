@@ -4,7 +4,7 @@ import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { loadSkillCatalog } from '../src/skill-catalog.js';
+import { loadSkillCatalog, DEFAULT_SKILL_ROOTS } from '../src/skill-catalog.js';
 
 type Skill = { name: string; description: string };
 
@@ -43,6 +43,22 @@ test('loadSkillCatalog reads SKILL.md frontmatter', async () => {
     assert.equal(second?.description, 'beta helps work');
   } finally {
     await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('DEFAULT_SKILL_ROOTS includes all expected default roots', () => {
+  const roots = new Set<string>([...DEFAULT_SKILL_ROOTS]);
+  const expected: string[] = [
+    '~/worksp/richerd-skills/skills/richerd',
+    '~/worksp/richerd-skills/skills/third-party',
+    '~/.openclaw/workspace/skills',
+    '~/.agents/skills',
+    '~/.openclaw/npm/node_modules/openclaw/skills/',
+    '~/.openclaw/plugin-skills/',
+  ];
+
+  for (const item of expected) {
+    assert.equal(roots.has(item), true, `missing root: ${item}`);
   }
 });
 

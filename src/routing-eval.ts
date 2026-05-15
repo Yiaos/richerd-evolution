@@ -1,9 +1,16 @@
 export interface RoutingFixture {
   id: string;
   intent: string;
-  expectedSkill: string;
+  expectedSkill: string | null;
   shouldTrigger: boolean;
   rationale?: string;
+  labelSource?: "llm" | "human";
+  labelerModel?: string | null;
+  labelerPromptVersion?: string | null;
+  reviewedBy?: string | null;
+  reviewStatus?: "pending" | "approved" | "rejected";
+  sourceSession?: string;
+  sourceTurnId?: string;
 }
 
 export interface CatalogResolver {
@@ -13,10 +20,19 @@ export interface CatalogResolver {
 export interface RoutingCaseResult {
   id: string;
   intent: string;
-  expectedSkill: string;
+  expectedSkill: string | null;
   expectedShouldTrigger: boolean;
   predictedSkill: string | null;
   passed: boolean;
+}
+
+export interface ConfusionMatrix {
+  truePositive: number;
+  trueNegative: number;
+  falseNegative: number;
+  falsePositive: number;
+  wrongSkill: number;
+  routingPassRate: number;
 }
 
 export interface RoutingEvalResult {
@@ -24,6 +40,7 @@ export interface RoutingEvalResult {
   passed: number;
   failed: number;
   timestamp: string;
+  confusionMatrix: ConfusionMatrix;
   results: RoutingCaseResult[];
 }
 
@@ -39,10 +56,38 @@ export function parseFixtureLine(raw: string): RoutingFixture {
 
   const id = String(obj.id ?? "").trim();
   const intent = String(obj.intent ?? "").trim();
-  const expectedSkill = String(obj.expectedSkill ?? "").trim();
-  const shouldTrigger = Boolean(obj.shouldTrigger);
+  const shouldTrigger = obj.shouldTrigger;
 
-  if (!id || !intent || !expectedSkill || typeof obj.shouldTrigger !== "boolean") {
+  let expectedSkill: string | null = null;
+  if (!("expectedSkill" in obj)) {
+    throw new Error(`Invalid routing fixture: ${raw}`);
+  }
+
+  if (obj.expectedSkill === null) {
+    expectedSkill = null;
+  } else if (typeof obj.expectedSkill === "string") {
+    const normalized = obj.expectedSkill.trim();
+    expectedSkill = normalized.length > 0 ? normalized : null;
+  } else {
+    throw new Error(`Invalid routing fixture: ${raw}`);
+  }
+
+  const isLabelSourceValid =
+    obj.labelSource === undefined || obj.labelSource === "llm" || obj.labelSource === "human";
+  const isReviewStatusValid =
+    obj.reviewStatus === undefined ||
+    obj.reviewStatus === "pending" ||
+    obj.reviewStatus === "approved" ||
+    obj.reviewStatus === "rejected";
+
+  const hasRequiredBaseFields =
+    id.length > 0 && intent.length > 0 && typeof shouldTrigger === "boolean" && expectedSkill !== undefined;
+
+  if (!hasRequiredBaseFields || !isLabelSourceValid || !isReviewStatusValid) {
+    throw new Error(`Invalid routing fixture: ${raw}`);
+  }
+
+  if (shouldTrigger && expectedSkill === null) {
     throw new Error(`Invalid routing fixture: ${raw}`);
   }
 
@@ -51,7 +96,17 @@ export function parseFixtureLine(raw: string): RoutingFixture {
     intent,
     expectedSkill,
     shouldTrigger,
-    rationale: obj.rationale ? String(obj.rationale) : undefined,
+    rationale: typeof obj.rationale === "string" ? obj.rationale : undefined,
+    labelSource: obj.labelSource,
+    labelerModel: obj.labelerModel === undefined || obj.labelerModel === null ? obj.labelerModel ?? null : String(obj.labelerModel),
+    labelerPromptVersion:
+      obj.labelerPromptVersion === undefined || obj.labelerPromptVersion === null
+        ? obj.labelerPromptVersion ?? null
+        : String(obj.labelerPromptVersion),
+    reviewedBy: obj.reviewedBy === undefined || obj.reviewedBy === null ? obj.reviewedBy ?? null : String(obj.reviewedBy),
+    reviewStatus: obj.reviewStatus,
+    sourceSession: obj.sourceSession === undefined ? undefined : String(obj.sourceSession),
+    sourceTurnId: obj.sourceTurnId === undefined ? undefined : String(obj.sourceTurnId),
   };
 }
 
@@ -83,13 +138,36 @@ export function runRoutingEval(fixtures: RoutingFixture[], catalog: readonly { n
   const results: RoutingCaseResult[] = [];
   let passed = 0;
 
+  const confusionMatrix: ConfusionMatrix = {
+    truePositive: 0,
+    trueNegative: 0,
+    falseNegative: 0,
+    falsePositive: 0,
+    wrongSkill: 0,
+    routingPassRate: 0,
+  };
+
   for (const fixture of fixtures) {
     const predicted = resolve(fixture.intent, catalog);
-    const shouldMatch = fixture.shouldTrigger
-      ? predicted !== null && predicted === fixture.expectedSkill
-      : predicted === null || predicted !== fixture.expectedSkill;
 
-    if (shouldMatch) {
+    let casePassed = false;
+    if (fixture.shouldTrigger) {
+      if (predicted === fixture.expectedSkill) {
+        confusionMatrix.truePositive += 1;
+        casePassed = true;
+      } else if (predicted === null) {
+        confusionMatrix.falseNegative += 1;
+      } else {
+        confusionMatrix.wrongSkill += 1;
+      }
+    } else if (predicted === null) {
+      confusionMatrix.trueNegative += 1;
+      casePassed = true;
+    } else {
+      confusionMatrix.falsePositive += 1;
+    }
+
+    if (casePassed) {
       passed += 1;
     }
 
@@ -99,15 +177,20 @@ export function runRoutingEval(fixtures: RoutingFixture[], catalog: readonly { n
       expectedSkill: fixture.expectedSkill,
       expectedShouldTrigger: fixture.shouldTrigger,
       predictedSkill: predicted,
-      passed: shouldMatch,
+      passed: casePassed,
     });
   }
+
+  confusionMatrix.routingPassRate = fixtures.length === 0
+    ? 0
+    : (confusionMatrix.truePositive + confusionMatrix.trueNegative) / fixtures.length;
 
   return {
     total: fixtures.length,
     passed,
     failed: fixtures.length - passed,
     timestamp: new Date().toISOString(),
+    confusionMatrix,
     results,
   };
 }

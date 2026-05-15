@@ -17,7 +17,7 @@ type RoutingResult = {
   id: string;
   passed: boolean;
   predictedSkill: string | null;
-  expectedSkill: string;
+  expectedSkill: string | null;
   expectedShouldTrigger: boolean;
 };
 
@@ -35,6 +35,99 @@ test('parseFixtureLine validates required fields', () => {
   assert.equal(good.shouldTrigger, true);
 
   assert.throws(() => parseFixtureLine(''), /Empty fixture line/);
+});
+
+test('parseFixtureLine accepts expectedSkill=null when shouldTrigger=false', () => {
+  const fixture = parseFixtureLine('{"id":"case-null-ok","intent":"just chat","expectedSkill":null,"shouldTrigger":false}');
+  assert.equal(fixture.id, 'case-null-ok');
+  assert.equal(fixture.expectedSkill, null);
+  assert.equal(fixture.shouldTrigger, false);
+});
+
+test('parseFixtureLine rejects expectedSkill=null when shouldTrigger=true', () => {
+  assert.throws(
+    () => parseFixtureLine('{"id":"case-null-bad","intent":"collect article","expectedSkill":null,"shouldTrigger":true}'),
+    /Invalid routing fixture/,
+  );
+});
+
+test('parseFixtureLine rejects non-string non-null expectedSkill values', () => {
+  assert.throws(
+    () => parseFixtureLine('{"id":"case-bad","intent":"test intent","expectedSkill":123,"shouldTrigger":false}'),
+    /Invalid routing fixture/,
+  );
+});
+
+test('parseFixtureLine rejects missing expectedSkill', () => {
+  assert.throws(
+    () => parseFixtureLine('{"id":"case-missing","intent":"test intent","shouldTrigger":false}'),
+    /Invalid routing fixture/,
+  );
+});
+
+test('parseFixtureLine preserves optional metadata fields', () => {
+  const fixture = parseFixtureLine(JSON.stringify({
+    id: 'case-meta',
+    intent: 'collect article',
+    expectedSkill: 'collect-article',
+    shouldTrigger: true,
+    labelSource: 'human',
+    labelerModel: null,
+    labelerPromptVersion: 'v1',
+    reviewedBy: 'richer',
+    reviewStatus: 'approved',
+    sourceSession: 'manual',
+    sourceTurnId: 'turn-001',
+  }));
+
+  assert.equal(fixture.labelSource, 'human');
+  assert.equal(fixture.labelerModel, null);
+  assert.equal(fixture.labelerPromptVersion, 'v1');
+  assert.equal(fixture.reviewedBy, 'richer');
+  assert.equal(fixture.reviewStatus, 'approved');
+  assert.equal(fixture.sourceSession, 'manual');
+  assert.equal(fixture.sourceTurnId, 'turn-001');
+});
+
+test('runRoutingEval reports confusion matrix and strict pass semantics', () => {
+  const fixtures: RoutingFixture[] = [
+    { id: 'tp', intent: 'intent tp', expectedSkill: 'collect-article', shouldTrigger: true },
+    { id: 'tn', intent: 'intent tn', expectedSkill: null, shouldTrigger: false },
+    { id: 'fn', intent: 'intent fn', expectedSkill: 'collect-article', shouldTrigger: true },
+    { id: 'fp', intent: 'intent fp', expectedSkill: null, shouldTrigger: false },
+    { id: 'ws', intent: 'intent ws', expectedSkill: 'collect-article', shouldTrigger: true },
+  ];
+
+  const predictions: Record<string, string | null> = {
+    'intent tp': 'collect-article',
+    'intent tn': null,
+    'intent fn': null,
+    'intent fp': 'task-planner',
+    'intent ws': 'task-planner',
+  };
+
+  const resolver = (intent: string) => predictions[intent] ?? null;
+  const result = runRoutingEval(fixtures, [{ name: 'collect-article' }, { name: 'task-planner' }], resolver);
+
+  assert.deepEqual(result.confusionMatrix, {
+    truePositive: 1,
+    trueNegative: 1,
+    falseNegative: 1,
+    falsePositive: 1,
+    wrongSkill: 1,
+    routingPassRate: 0.4,
+  });
+
+  assert.equal(result.total, 5);
+  assert.equal(result.passed, 2);
+  assert.equal(result.failed, 3);
+
+  const byId = Object.fromEntries(result.results.map((item) => [item.id, item]));
+  assert.equal(byId.tp.passed, true);
+  assert.equal(byId.tn.passed, true);
+  assert.equal(byId.fn.passed, false);
+  assert.equal(byId.fp.passed, false);
+  assert.equal(byId.ws.passed, false);
 });
 
 test('routing fixture validates and supports deterministic baseline', async () => {
@@ -78,7 +171,9 @@ test('routing fixture validates and supports deterministic baseline', async () =
       .filter(Boolean)
       .map((line) => parseFixtureLine(line));
 
-    const noMissing = lines.filter((entry: RoutingFixture) => entry.shouldTrigger && catalogNames.has(entry.expectedSkill));
+    const noMissing = lines.filter(
+      (entry: RoutingFixture) => entry.shouldTrigger && entry.expectedSkill !== null && catalogNames.has(entry.expectedSkill),
+    );
     assert.equal(noMissing.length, 1, 'only collect-article should be required');
     assert.equal(noMissing[0].expectedSkill, 'collect-article');
 
