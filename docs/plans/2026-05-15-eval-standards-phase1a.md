@@ -9,10 +9,12 @@
 **Tech:** TypeScript, Node.js test runner, existing routing-eval framework
 **Stage:** pr
 **Execution:** subagent (s2a-gpt/gpt-5.3-codex)
-**Next:** notify
-**Status:** ✅ Done
+**Next:** merge-or-cleanup
+**Status:** PR ready
 **Created:** 2026-05-15
 **Updated:** 2026-05-15
+**PR:** https://github.com/Yiaos/richerd-evolution/pull/4
+**Branch:** feat/eval-standards-phase1a
 
 ---
 
