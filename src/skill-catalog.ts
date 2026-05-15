@@ -17,10 +17,6 @@ export const DEFAULT_SKILL_ROOTS = [
   "~/worksp/richerd-skills/skills/richerd",
   "~/worksp/richerd-skills/skills/third-party",
   "~/worksp/richerd-skills/skills/universal",
-  "~/.openclaw/workspace/skills",
-  "~/.agents/skills",
-  "~/.openclaw/npm/node_modules/openclaw/skills/",
-  "~/.openclaw/plugin-skills/",
 ] as const;
 
 export function expandHome(rawPath: string): string {

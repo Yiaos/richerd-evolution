@@ -19,15 +19,11 @@ function fmFrom(name: string, description: string): string {
   ].join('\n');
 }
 
-test('DEFAULT_SKILL_ROOTS contains all required roots', () => {
+test('DEFAULT_SKILL_ROOTS contains only richerd-skills roots', () => {
   assert.deepEqual(DEFAULT_SKILL_ROOTS, [
     '~/worksp/richerd-skills/skills/richerd',
     '~/worksp/richerd-skills/skills/third-party',
     '~/worksp/richerd-skills/skills/universal',
-    '~/.openclaw/workspace/skills',
-    '~/.agents/skills',
-    '~/.openclaw/npm/node_modules/openclaw/skills/',
-    '~/.openclaw/plugin-skills/',
   ]);
 });
 
